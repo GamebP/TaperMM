@@ -1,4 +1,4 @@
--- source/farming.lua
+-- source/farming.lua (no Pull Coins, fixed XP Farm with waypoints)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
@@ -16,7 +16,7 @@ local Farming = {
     CoinThread = nil
 }
 
-function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
+function Farming.StartCoinFarm(configTable, stateTable, utils, movement, mapNames)
     if Farming.CoinThread then return end
     Farming.CoinThread = task.spawn(function()
         local lastCoinContainer = nil
@@ -26,7 +26,18 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                 local myChar = LocalPlayer.Character
                 local hrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    local coinContainer = utils.findCoinContainer(utils.MAP_NAMES or {})
+                    local coinContainer = nil
+                    if utils and utils.findCoinContainer then
+                        coinContainer = utils.findCoinContainer(mapNames or {})
+                    else
+                        for _, obj in ipairs(Workspace:GetChildren()) do
+                            if obj:IsA("Model") then
+                                local c = obj:FindFirstChild("CoinContainer")
+                                if c then coinContainer = c; break end
+                            end
+                        end
+                    end
+
                     if coinContainer then
                         if coinContainer ~= lastCoinContainer then
                             stateTable.visitedCoins = {}
@@ -42,7 +53,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                                     if configTable.CoinMethod == "Teleport" then
                                         hrp.AssemblyLinearVelocity = Vector3.zero
                                         hrp.CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)
-                                        task.wait(0.18) 
+                                        task.wait(0.18)
                                         stateTable.visitedCoins[coinPart] = true
                                     elseif configTable.CoinMethod == "Smooth Fly" then
                                         local path = PathfindingService:CreatePath({
@@ -112,6 +123,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                                         end
                                         task.wait(0.1)
                                     else
+                                        -- FireTouch
                                         if firetouchinterest then
                                             firetouchinterest(coinPart, hrp, 0)
                                             task.wait(0.01)
@@ -131,7 +143,6 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
     end)
 end
 
--- Auto‑Grab Gun – brings gun to you
 function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Farming.AutoGunThread then return end
     Farming.AutoGunThread = task.spawn(function()
@@ -161,17 +172,16 @@ function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knif
 end
 
 -- ============================================================
---  UPDATED XP FARM: smooth walk between the given waypoints
+--  FIXED XP FARM: smooth walk along the four waypoints
 -- ============================================================
 function Farming.StartXPFarm(configTable, stateTable, utils, movement)
     if Farming.XPThread then return end
     Farming.XPThread = task.spawn(function()
-        -- Define the path waypoints (X, Y, Z)
         local waypoints = {
-            Vector3.new(-49.50, 247.16, 9010.89),
-            Vector3.new(32.31, 254.66, 9007.49),
-            Vector3.new(34.09, 259.34, 9052.07),
-            Vector3.new(-24.01, 260.87, 9057.17)
+            Vector3.new(-49.50, 117.16, 9009.19),
+            Vector3.new(34.09,  117.16, 9009.19),
+            Vector3.new(34.09,  117.16, 9054.62),
+            Vector3.new(-49.50, 117.16, 9054.62)
         }
 
         while stateTable.scriptRunning and configTable.XPFarm do
@@ -180,22 +190,18 @@ function Farming.StartXPFarm(configTable, stateTable, utils, movement)
 
                 local root = utils.GetRoot()
                 if root then
-                    -- Enable noclip to avoid collisions
                     movement.SetNoclip(true, configTable)
-
-                    -- Smoothly tween to the next waypoint (1.5 seconds)
-                    movement.TweenTo(wp, 1.5, utils.GetRoot)
-
-                    -- Wait a bit longer than the tween to ensure arrival
-                    task.wait(1.8)
-
-                    -- Optional: short pause at each waypoint
+                    local tween = movement.TweenTo(wp, 1.5, utils.GetRoot)
+                    if tween then
+                        tween.Completed:Wait()
+                    else
+                        root.CFrame = CFrame.new(wp)
+                    end
                     task.wait(1)
                 end
             end
         end
 
-        -- Disable noclip when the farm stops
         movement.SetNoclip(false, configTable)
         Farming.XPThread = nil
     end)
