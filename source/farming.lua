@@ -1,4 +1,4 @@
--- source/farming.lua
+-- source/farming.lua (added "Pull Coins" method)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
@@ -33,92 +33,139 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                             lastCoinContainer = coinContainer
                         end
 
+                        -- Collect all coin parts into a list
+                        local coinParts = {}
                         for _, v in ipairs(coinContainer:GetChildren()) do
-                            if not configTable.AutoCoin or not stateTable.scriptRunning then break end
                             if v.Name == "Coin_Server" or v.Name == "Snowflake_Server" or v.Name == "Candy_Server" then
                                 local coinPart = v:IsA("BasePart") and v or (v:FindFirstChild("Coin") or v:FindFirstChildOfClass("BasePart"))
-                                
                                 if coinPart and coinPart:IsDescendantOf(Workspace) and not stateTable.visitedCoins[coinPart] then
-                                    if configTable.CoinMethod == "Teleport" then
-                                        hrp.AssemblyLinearVelocity = Vector3.zero
-                                        hrp.CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)
-                                        task.wait(0.18) 
-                                        stateTable.visitedCoins[coinPart] = true
-                                    elseif configTable.CoinMethod == "Smooth Fly" then
-                                        local path = PathfindingService:CreatePath({
-                                            AgentRadius = 2,
-                                            AgentHeight = 5,
-                                            AgentCanJump = true
-                                        })
-                                        local pathSuccess, _ = pcall(function()
-                                            path:ComputeAsync(hrp.Position, coinPart.Position)
-                                        end)
-                                        
-                                        if pathSuccess and path.Status == Enum.PathStatus.Success then
-                                            local waypoints = path:GetWaypoints()
-                                            movement.startNoclip()
-                                            
-                                            for _, waypoint in ipairs(waypoints) do
-                                                if not configTable.AutoCoin or not stateTable.scriptRunning then break end
-                                                local targetPos = waypoint.Position + Vector3.new(0, 1.2, 0)
-                                                local distance = (hrp.Position - targetPos).Magnitude
-                                                local speed = 30
-                                                local duration = distance / speed
-                                                
-                                                hrp.AssemblyLinearVelocity = Vector3.zero
-                                                local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
-                                                tween:Play()
-                                                
-                                                local completed = false
-                                                local conn; conn = tween.Completed:Connect(function()
-                                                    completed = true
-                                                    conn:Disconnect()
-                                                end)
-                                                
-                                                while not completed and configTable.AutoCoin and stateTable.scriptRunning do
-                                                    task.wait()
-                                                end
-                                                if not configTable.AutoCoin or not stateTable.scriptRunning then
-                                                    tween:Cancel()
-                                                    break
-                                                end
-                                            end
-                                            movement.stopNoclip()
-                                            stateTable.visitedCoins[coinPart] = true
-                                        else
-                                            movement.startNoclip()
-                                            local distance = (hrp.Position - coinPart.Position).Magnitude
+                                    table.insert(coinParts, coinPart)
+                                end
+                            end
+                        end
+
+                        -- Sort by distance (optional)
+                        table.sort(coinParts, function(a, b)
+                            return (a.Position - hrp.Position).Magnitude < (b.Position - hrp.Position).Magnitude
+                        end)
+
+                        local collected = 0
+                        local maxCoins = 40
+                        local pullRadius = 150
+
+                        for _, coinPart in ipairs(coinParts) do
+                            if not configTable.AutoCoin or not stateTable.scriptRunning then break end
+                            if collected >= maxCoins then break end
+                            local distance = (coinPart.Position - hrp.Position).Magnitude
+                            if distance > pullRadius then break end -- sorted, so farther ones will be > radius
+
+                            -- === PULL COINS METHOD ===
+                            if configTable.CoinMethod == "Pull Coins" then
+                                -- Prepare the coin part
+                                if coinPart:IsA("BasePart") then
+                                    -- Unanchor and disable collision to allow movement
+                                    local wasAnchored = coinPart.Anchored
+                                    coinPart.Anchored = false
+                                    coinPart.CanCollide = false
+
+                                    -- Tween to player's position (with a small offset)
+                                    local targetPos = hrp.Position + Vector3.new(0, 1.5, 0)
+                                    local tween = TweenService:Create(coinPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
+                                        CFrame = CFrame.new(targetPos)
+                                    })
+                                    tween:Play()
+                                    tween.Completed:Wait()
+
+                                    -- Fire touch to collect
+                                    pcall(function()
+                                        firetouchinterest(coinPart, hrp, 0)
+                                        task.wait(0.01)
+                                        firetouchinterest(coinPart, hrp, 1)
+                                    end)
+
+                                    -- Restore anchor state if needed (but coin may be destroyed after touch)
+                                    if coinPart and coinPart.Parent then
+                                        coinPart.Anchored = wasAnchored
+                                        coinPart.CanCollide = true
+                                    end
+
+                                    stateTable.visitedCoins[coinPart] = true
+                                    collected = collected + 1
+                                end
+                            else
+                                -- Existing methods (FireTouch, Teleport, Smooth Fly) - unchanged
+                                if configTable.CoinMethod == "Teleport" then
+                                    hrp.AssemblyLinearVelocity = Vector3.zero
+                                    hrp.CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)
+                                    task.wait(0.18)
+                                    stateTable.visitedCoins[coinPart] = true
+                                elseif configTable.CoinMethod == "Smooth Fly" then
+                                    local path = PathfindingService:CreatePath({
+                                        AgentRadius = 2,
+                                        AgentHeight = 5,
+                                        AgentCanJump = true
+                                    })
+                                    local pathSuccess, _ = pcall(function()
+                                        path:ComputeAsync(hrp.Position, coinPart.Position)
+                                    end)
+                                    if pathSuccess and path.Status == Enum.PathStatus.Success then
+                                        local waypoints = path:GetWaypoints()
+                                        movement.startNoclip()
+                                        for _, waypoint in ipairs(waypoints) do
+                                            if not configTable.AutoCoin or not stateTable.scriptRunning then break end
+                                            local targetPos = waypoint.Position + Vector3.new(0, 1.2, 0)
+                                            local distance2 = (hrp.Position - targetPos).Magnitude
                                             local speed = 30
-                                            local duration = distance / speed
-                                            
+                                            local duration = distance2 / speed
                                             hrp.AssemblyLinearVelocity = Vector3.zero
-                                            local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)})
+                                            local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
                                             tween:Play()
-                                            
                                             local completed = false
                                             local conn; conn = tween.Completed:Connect(function()
                                                 completed = true
                                                 conn:Disconnect()
                                             end)
-                                            
                                             while not completed and configTable.AutoCoin and stateTable.scriptRunning do
                                                 task.wait()
                                             end
                                             if not configTable.AutoCoin or not stateTable.scriptRunning then
                                                 tween:Cancel()
+                                                break
                                             end
-                                            movement.stopNoclip()
-                                            stateTable.visitedCoins[coinPart] = true
                                         end
-                                        task.wait(0.1)
+                                        movement.stopNoclip()
+                                        stateTable.visitedCoins[coinPart] = true
                                     else
-                                        if firetouchinterest then
-                                            firetouchinterest(coinPart, hrp, 0)
-                                            task.wait(0.01)
-                                            firetouchinterest(coinPart, hrp, 1)
-                                            task.wait(0.05)
-                                            stateTable.visitedCoins[coinPart] = true
+                                        movement.startNoclip()
+                                        local distance2 = (hrp.Position - coinPart.Position).Magnitude
+                                        local speed = 30
+                                        local duration = distance2 / speed
+                                        hrp.AssemblyLinearVelocity = Vector3.zero
+                                        local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)})
+                                        tween:Play()
+                                        local completed = false
+                                        local conn; conn = tween.Completed:Connect(function()
+                                            completed = true
+                                            conn:Disconnect()
+                                        end)
+                                        while not completed and configTable.AutoCoin and stateTable.scriptRunning do
+                                            task.wait()
                                         end
+                                        if not configTable.AutoCoin or not stateTable.scriptRunning then
+                                            tween:Cancel()
+                                        end
+                                        movement.stopNoclip()
+                                        stateTable.visitedCoins[coinPart] = true
+                                    end
+                                    task.wait(0.1)
+                                else
+                                    -- FireTouch
+                                    if firetouchinterest then
+                                        firetouchinterest(coinPart, hrp, 0)
+                                        task.wait(0.01)
+                                        firetouchinterest(coinPart, hrp, 1)
+                                        task.wait(0.05)
+                                        stateTable.visitedCoins[coinPart] = true
                                     end
                                 end
                             end
@@ -131,9 +178,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
     end)
 end
 
--- ============================================================
---  UPDATED: Auto‑Grab Gun – brings the gun to you, not you to it
--- ============================================================
+-- (the rest of farming.lua stays exactly the same)
 function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Farming.AutoGunThread then return end
     Farming.AutoGunThread = task.spawn(function()
@@ -141,18 +186,14 @@ function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knif
             local gun = stateTable.CachedGunDrop
             local root = utils.GetRoot()
             if gun and root and not utils.hasWeapon(LocalPlayer, "Gun", knifeNames, gunNames) then
-                -- Get the main part of the gun (Handle or first BasePart)
                 local gunPart = utils.getAdorneePart(gun)
                 if gunPart and gunPart:IsA("BasePart") then
-                    -- Move the gun to the player's position (slightly above to avoid ground clipping)
                     local targetPos = root.Position + Vector3.new(0, 2, 0)
                     local tween = TweenService:Create(gunPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
                         CFrame = CFrame.new(targetPos)
                     })
                     tween:Play()
                     tween.Completed:Wait()
-                    
-                    -- Fire touch interests to pick it up automatically
                     pcall(function()
                         firetouchinterest(gunPart, root, 0)
                         task.wait(0.01)
