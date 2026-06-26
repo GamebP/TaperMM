@@ -13,6 +13,10 @@ local Combat = {
     SilentAimEnabled = false
 }
 
+-- Re-entrancy safe local upvalues
+local oldNamecall = nil
+local oldIndex = nil
+
 -- Triggerbot validation status helper
 function Combat.isBindActive(configTable, stateTable)
     if configTable.AutoShootMode == "Hold" then
@@ -60,10 +64,21 @@ function Combat.FindClosestMurderer(utils, knifeNames, gunNames)
 end
 
 function Combat.InstallSilentAim(utils, knifeNames, gunNames)
-    if Combat.oldNamecall then return end
-    Combat.oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    if oldNamecall or oldIndex then return end
+
+    -- Safe Namecall Metamethod Hook
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
-        if not Combat.SilentAimEnabled then return Combat.oldNamecall(self, ...) end
+        
+        -- Fallback if the hook executes before oldNamecall finishes assigning
+        if not oldNamecall then
+            local original = getrawmetatable(game).__namecall
+            if type(original) == "function" then
+                return original(self, ...)
+            end
+        end
+
+        if not Combat.SilentAimEnabled then return oldNamecall(self, ...) end
         
         if self == Mouse then
             if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
@@ -75,7 +90,7 @@ function Combat.InstallSilentAim(utils, knifeNames, gunNames)
                         local origin = ray.Origin
                         local dir = (target.Position - origin).Unit * ray.Direction.Magnitude
                         args[1] = Ray.new(origin, dir)
-                        return Combat.oldNamecall(self, table.unpack(args))
+                        return oldNamecall(self, table.unpack(args))
                     end
                 end
             elseif method == "Raycast" then
@@ -85,15 +100,27 @@ function Combat.InstallSilentAim(utils, knifeNames, gunNames)
                 local target = Combat.FindClosestMurderer(utils, knifeNames, gunNames)
                 if target and origin then
                     args[2] = (target.Position - origin).Unit * (typeof(dir) == "Vector3" and dir.Magnitude or 1000)
-                    return Combat.oldNamecall(self, table.unpack(args))
+                    return oldNamecall(self, table.unpack(args))
                 end
             end
         end
-        return Combat.oldNamecall(self, ...)
+        return oldNamecall(self, ...)
     end)
 
-    Combat.oldIndex = hookmetamethod(game, "__index", function(self, key)
-        if not Combat.SilentAimEnabled then return Combat.oldIndex(self, key) end
+    -- Safe Index Metamethod Hook
+    oldIndex = hookmetamethod(game, "__index", function(self, key)
+        -- Fallback if background processes (like en-us translation) access indexes immediately
+        if not oldIndex then
+            local original = getrawmetatable(game).__index
+            if type(original) == "function" then
+                return original(self, key)
+            elseif type(original) == "table" then
+                return original[key]
+            end
+        end
+
+        if not Combat.SilentAimEnabled then return oldIndex(self, key) end
+        
         if self == Mouse then
             if key == "Target" or key == "Hit" then
                 local target = Combat.FindClosestMurderer(utils, knifeNames, gunNames)
@@ -106,17 +133,22 @@ function Combat.InstallSilentAim(utils, knifeNames, gunNames)
                 end
             end
         end
-        return Combat.oldIndex(self, key)
+        return oldIndex(self, key)
     end)
+
+    Combat.oldNamecall = oldNamecall
+    Combat.oldIndex = oldIndex
 end
 
 function Combat.UninstallSilentAim()
-    if Combat.oldNamecall then
-        hookmetamethod(game, "__namecall", Combat.oldNamecall)
+    if oldNamecall then
+        hookmetamethod(game, "__namecall", oldNamecall)
+        oldNamecall = nil
         Combat.oldNamecall = nil
     end
-    if Combat.oldIndex then
-        hookmetamethod(game, "__index", Combat.oldIndex)
+    if oldIndex then
+        hookmetamethod(game, "__index", oldIndex)
+        oldIndex = nil
         Combat.oldIndex = nil
     end
 end
