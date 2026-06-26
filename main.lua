@@ -102,11 +102,58 @@ task.spawn(function()
     end
 end)
 
+-- Background Coin Count Auto-Switching Loop
+task.spawn(function()
+    local autoSwitched = false -- Tracks if we automatically switched to XP Farm
+    
+    while State.scriptRunning do
+        task.wait(1) -- Poll once per second to keep execution light
+        
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+        local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+        local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
+        local container = coinBags and coinBags:FindFirstChild("Container")
+        local coin = container and container:FindFirstChild("Coin")
+        local currencyFrame = coin and coin:FindFirstChild("CurrencyFrame")
+        local icon = currencyFrame and currencyFrame:FindFirstChild("Icon")
+        local coinsLabel = icon and icon:FindFirstChild("Coins")
+        
+        if coinsLabel and coinsLabel:IsA("TextLabel") then
+            local coinText = coinsLabel.Text
+            local currentCoins = tonumber(string.match(coinText, "%d+")) -- Extract first sequence of digits
+            
+            if currentCoins then
+                -- 1. If coins reach 40, switch to XP Farm
+                if Config.AutoCoin and not Config.XPFarm and currentCoins == 40 then
+                    Utils.log("Coin count reached 40/40! Switching to XP Farm.", "warn")
+                    autoSwitched = true
+                    
+                    if AutoCoinToggle then AutoCoinToggle:Set(false) else Config.AutoCoin = false end
+                    if XPFarmToggle then XPFarmToggle:Set(true) else Config.XPFarm = true; Farming.StartXPFarm(Config, State, Utils, Movement) end
+                
+                -- 2. If coins reset to 0 (new round), switch back to Coin Farm
+                elseif Config.XPFarm and not Config.AutoCoin and currentCoins == 0 and autoSwitched then
+                    Utils.log("New round detected (coins reset to 0). Switching back to Auto-Collect Coins.", "info")
+                    autoSwitched = false
+                    
+                    if XPFarmToggle then XPFarmToggle:Set(false) else Config.XPFarm = false; Movement.SetNoclip(false, Config) end
+                    if AutoCoinToggle then AutoCoinToggle:Set(true) else Config.AutoCoin = true end
+                end
+            end
+        end
+    end
+end)
+
 -- Unloader definition
 local renderConnection, inputBeganConnection
 local function unloadScript()
     Utils.log("Unloading script...", "warn")
     State.scriptRunning = false
+    
+    -- Ensure the player is unanchored upon unloading
+    local root = Utils.GetRoot()
+    if root then root.Anchored = false end
     
     Movement.stopNoclip()
     Movement.SetFly(false, Config, Utils.GetRoot)
