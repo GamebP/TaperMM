@@ -10,17 +10,17 @@ local LocalPlayer = Players.LocalPlayer
 -- ==========================================
 --             WEB LOADER CONFIG
 -- ==========================================
--- Change this URL to point to where you host your raw scripts
-local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/main/"
+-- Updated base URL to point directly to your repository's source folder
+local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/refs/heads/main/source/"
 
--- Each file is now loaded cleanly from the web
-local Data     = loadstring(game:HttpGet(baseURL .. "source/config.lua"))()
-local State    = loadstring(game:HttpGet(baseURL .. "source/state.lua"))()
-local Utils    = loadstring(game:HttpGet(baseURL .. "source/utils.lua"))()
-local ESP      = loadstring(game:HttpGet(baseURL .. "source/esp.lua"))()
-local Movement = loadstring(game:HttpGet(baseURL .. "source/movement.lua"))()
-local Combat   = loadstring(game:HttpGet(baseURL .. "source/combat.lua"))()
-local Farming  = loadstring(game:HttpGet(baseURL .. "source/farming.lua"))()
+-- Loading files directly from the specified directory path
+local Data     = loadstring(game:HttpGet(baseURL .. "config.lua"))()
+local State    = loadstring(game:HttpGet(baseURL .. "state.lua"))()
+local Utils    = loadstring(game:HttpGet(baseURL .. "utils.lua"))()
+local ESP      = loadstring(game:HttpGet(baseURL .. "esp.lua"))()
+local Movement = loadstring(game:HttpGet(baseURL .. "movement.lua"))()
+local Combat   = loadstring(game:HttpGet(baseURL .. "combat.lua"))()
+local Farming  = loadstring(game:HttpGet(baseURL .. "farming.lua"))()
 
 local Config = Data.Config
 
