@@ -18,8 +18,11 @@ local ConfigModule = {
         SilentAim = false,
         KillAura = false,
         KillAuraRange = 18,
+<<<<<<< HEAD
         KillAuraTeleport = false,
         KillAuraTeleportRange = 150,
+=======
+>>>>>>> parent of 1711c94 (Refactor farming and combat logic: remove "Pull Coins" option, add safe pathfinding for dodging, and implement teleportation for Kill Aura)
         WalkSpeed = 16,
         Fly = false,
         Noclip = false,

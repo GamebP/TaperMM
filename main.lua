@@ -1,4 +1,4 @@
--- main.lua
+-- main.lua (removed "Pull Coins" from dropdown)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -102,11 +102,58 @@ task.spawn(function()
     end
 end)
 
+-- Background Coin Count Auto-Switching Loop
+task.spawn(function()
+    local autoSwitched = false -- Tracks if we automatically switched to XP Farm
+    
+    while State.scriptRunning do
+        task.wait(1) -- Poll once per second to keep execution light
+        
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+        local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+        local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
+        local container = coinBags and coinBags:FindFirstChild("Container")
+        local coin = container and container:FindFirstChild("Coin")
+        local currencyFrame = coin and coin:FindFirstChild("CurrencyFrame")
+        local icon = currencyFrame and currencyFrame:FindFirstChild("Icon")
+        local coinsLabel = icon and icon:FindFirstChild("Coins")
+        
+        if coinsLabel and coinsLabel:IsA("TextLabel") then
+            local coinText = coinsLabel.Text
+            local currentCoins = tonumber(string.match(coinText, "%d+")) -- Extract first sequence of digits
+            
+            if currentCoins then
+                -- 1. If coins reach 40, switch to XP Farm
+                if Config.AutoCoin and not Config.XPFarm and currentCoins == 40 then
+                    Utils.log("Coin count reached 40/40! Switching to XP Farm.", "warn")
+                    autoSwitched = true
+                    
+                    if AutoCoinToggle then AutoCoinToggle:Set(false) else Config.AutoCoin = false end
+                    if XPFarmToggle then XPFarmToggle:Set(true) else Config.XPFarm = true; Farming.StartXPFarm(Config, State, Utils, Movement) end
+                
+                -- 2. If coins reset to 0 (new round), switch back to Coin Farm
+                elseif Config.XPFarm and not Config.AutoCoin and currentCoins == 0 and autoSwitched then
+                    Utils.log("New round detected (coins reset to 0). Switching back to Auto-Collect Coins.", "info")
+                    autoSwitched = false
+                    
+                    if XPFarmToggle then XPFarmToggle:Set(false) else Config.XPFarm = false; Movement.SetNoclip(false, Config) end
+                    if AutoCoinToggle then AutoCoinToggle:Set(true) else Config.AutoCoin = true end
+                end
+            end
+        end
+    end
+end)
+
 -- Unloader definition
 local renderConnection, inputBeganConnection
 local function unloadScript()
     Utils.log("Unloading script...", "warn")
     State.scriptRunning = false
+    
+    -- Ensure the player is unanchored upon unloading
+    local root = Utils.GetRoot()
+    if root then root.Anchored = false end
     
     Movement.stopNoclip()
     Movement.SetFly(false, Config, Utils.GetRoot)
@@ -155,11 +202,16 @@ VisualsTab:CreateToggle({ Name = "Trap ESP", CurrentValue = Config.TrapESP, Flag
 
 FarmingTab:CreateSection("Farming Setup")
 FarmingTab:CreateToggle({ Name = "Auto-Collect Coins", CurrentValue = Config.AutoCoin, Flag = "AutoCoin", Callback = function(v) Config.AutoCoin = v end })
+-- Removed "Pull Coins" from options
 FarmingTab:CreateDropdown({
+<<<<<<< HEAD
     Name = "Coin Collection Method",
     Options = { "Teleport", "Smooth Fly" },
     CurrentOption = { Config.CoinMethod },
     Flag = "CoinMethod",
+=======
+    Name = "Coin Collection Method", Options = { "FireTouch", "Teleport", "Smooth Fly" }, CurrentOption = { Config.CoinMethod }, Flag = "CoinMethod",
+>>>>>>> parent of 1711c94 (Refactor farming and combat logic: remove "Pull Coins" option, add safe pathfinding for dodging, and implement teleportation for Kill Aura)
     Callback = function(op) Config.CoinMethod = type(op) == "table" and op[1] or op end
 })
 FarmingTab:CreateToggle({
@@ -191,33 +243,22 @@ CombatTab:CreateToggle({
     Callback = function(v) Config.AutoDodge = v; if v then Combat.StartAutoDodge(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
 })
 CombatTab:CreateSlider({ Name = "Dodge Trigger Distance", Range = {10, 60}, Increment = 1, Suffix = "studs", CurrentValue = Config.DodgeDistance, Flag = "DodgeDistance", Callback = function(v) Config.DodgeDistance = v end })
-
 CombatTab:CreateToggle({
     Name = "Kill Aura (Murderer Only)", CurrentValue = Config.KillAura, Flag = "KillAura",
     Callback = function(v) Config.KillAura = v; if v then Combat.StartKillAura(Config, State, Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
 })
 CombatTab:CreateSlider({ Name = "Kill Aura Range", Range = {5, 40}, Increment = 1, Suffix = "studs", CurrentValue = Config.KillAuraRange, Flag = "KillAuraRange", Callback = function(v) Config.KillAuraRange = v end })
 
--- New optional tele-kill setup
-CombatTab:CreateToggle({
-    Name = "Kill Aura Teleport", CurrentValue = Config.KillAuraTeleport, Flag = "KillAuraTeleport",
-    Callback = function(v) Config.KillAuraTeleport = v end
-})
-CombatTab:CreateSlider({ 
-    Name = "Teleport Kill Range", Range = {10, 300}, Increment = 5, Suffix = "studs", CurrentValue = Config.KillAuraTeleportRange, Flag = "KillAuraTeleportRange", 
-    Callback = function(v) Config.KillAuraTeleportRange = v end 
-})
-
 MoveTab:CreateSection("Movement Setup")
 MoveTab:CreateSlider({ Name = "WalkSpeed", Range = {16, 200}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.WalkSpeed, Flag = "WalkSpeed", Callback = function(v) Movement.ApplyWalkSpeed(v, Config, Utils.GetHumanoid) end })
 MoveTab:CreateToggle({ Name = "Noclip", CurrentValue = Config.Noclip, Flag = "Noclip", Callback = function(v) Movement.SetNoclip(v, Config) end })
 MoveTab:CreateSlider({ Name = "Fly Speed", Range = {10, 250}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.FlySpeed, Flag = "FlySpeed", Callback = function(v) Config.FlySpeed = v end })
 
-SettingsTab:CreateSection("IY Freeze & Bring (Breaks Models)")
+SettingsTab:CreateSection("Infinite Yield Malware (Freeze + Cbring - Breaks Models)")
 SettingsTab:CreateButton({
-    Name = "Freeze & Bring Other Players",
+    Name = "Run ;freeze all + ;cbring all (full malware - ONLY other players, models break now)",
     Callback = function()
-        Utils.log("Executing Freeze & Bring for other players.", "error")
+        Utils.log(";freeze all + ;cbring all executed - freezing only other players.", "error")
         for _, v in ipairs(Players:GetPlayers()) do
             if v ~= LocalPlayer and v.Character then
                 for _, x in next, v.Character:GetDescendants() do
@@ -259,7 +300,7 @@ SettingsTab:CreateButton({
                 end
             end
         end
-        Utils.log("Freeze & Bring execution completed.", "error")
+        Utils.log(";freeze all then ;cbring all done - other players frozen and brought exactly to you.", "error")
     end
 })
 SettingsTab:CreateButton({ Name = "Force Reset Character", Callback = function() local h = Utils.GetHumanoid(); if h then h.Health = 0 end end })
