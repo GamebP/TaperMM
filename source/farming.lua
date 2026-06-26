@@ -183,26 +183,26 @@ function Farming.StartXPFarm(configTable, stateTable, utils, movement)
             Vector3.new(34.09,  117.16, 9054.62),
             Vector3.new(-49.50, 117.16, 9054.62)
         }
+        local currentIndex = 1
 
         while stateTable.scriptRunning and configTable.XPFarm do
-            for _, wp in ipairs(waypoints) do
-                if not stateTable.scriptRunning or not configTable.XPFarm then break end
+            local root = utils.GetRoot()
+            if root then
+                -- Keep noclip on so you don't get stuck in terrain
+                movement.SetNoclip(true, configTable)
 
-                local root = utils.GetRoot()
-                if root then
-                    movement.SetNoclip(true, configTable)
-                    local tween = movement.TweenTo(wp, 1.5, utils.GetRoot)
-                    if tween then
-                        tween.Completed:Wait()
-                    else
-                        root.CFrame = CFrame.new(wp)
-                    end
-                    task.wait(1)
+                local target = waypoints[currentIndex]
+                -- Move only if you're not already close
+                if (root.Position - target).Magnitude > 2 then
+                    movement.TweenTo(target, 1.0, utils.GetRoot)
+                    task.wait(1.2)  -- wait for tween to finish
                 end
-            end
-        end
 
-        movement.SetNoclip(false, configTable)
+                -- Next waypoint (loops)
+                currentIndex = currentIndex % #waypoints + 1
+            end
+            task.wait(0.5)  -- small pause between moves
+        end
         Farming.XPThread = nil
     end)
 end
