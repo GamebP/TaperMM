@@ -7,27 +7,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Custom helper logic to safely import workspace modules
-local function import(path)
-    local success, content = pcall(readfile, path)
-    if not success or not content then
-        error("[Loader Error] Failed to read: " .. tostring(path))
-    end
-    local func, err = loadstring(content)
-    if not func then
-        error("[Loader Error] Failed to compile " .. path .. ": " .. tostring(err))
-    end
-    return func()
-end
+-- ==========================================
+--             WEB LOADER CONFIG
+-- ==========================================
+-- Replace this URL with your actual raw repository URL (e.g., GitHub Raw, Pastebin, or VPS link)
+local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/refs/heads/main/"
 
--- Module imports
-local Data = import("source/config.lua")
-local State = import("source/state.lua")
-local Utils = import("source/utils.lua")
-local ESP = import("source/esp.lua")
-local Movement = import("source/movement.lua")
-local Combat = import("source/combat.lua")
-local Farming = import("source/farming.lua")
+local Data     = loadstring(game:HttpGet(baseURL .. "source/config.lua"))()
+local State    = loadstring(game:HttpGet(baseURL .. "source/state.lua"))()
+local Utils    = loadstring(game:HttpGet(baseURL .. "source/utils.lua"))()
+local ESP      = loadstring(game:HttpGet(baseURL .. "source/esp.lua"))()
+local Movement = loadstring(game:HttpGet(baseURL .. "source/movement.lua"))()
+local Combat   = loadstring(game:HttpGet(baseURL .. "source/combat.lua"))()
+local Farming  = loadstring(game:HttpGet(baseURL .. "source/farming.lua"))()
 
 local Config = Data.Config
 
@@ -42,7 +34,7 @@ else
 end
 
 -- Initialize active threads
-Farming.StartCoinFarm(Config, State, Utils, Movement)
+Farming.StartCoinFarm(Config, State, Utils, Movement, Data.MAP_NAMES)
 
 -- MB4/MB5 Background Polling Loop
 task.spawn(function()
