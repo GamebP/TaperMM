@@ -1,4 +1,4 @@
--- main.lua (freeze only others + teleport whole character to you)
+-- main.lua (added "Pull Coins" to the dropdown)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -155,8 +155,12 @@ VisualsTab:CreateToggle({ Name = "Trap ESP", CurrentValue = Config.TrapESP, Flag
 
 FarmingTab:CreateSection("Farming Setup")
 FarmingTab:CreateToggle({ Name = "Auto-Collect Coins", CurrentValue = Config.AutoCoin, Flag = "AutoCoin", Callback = function(v) Config.AutoCoin = v end })
+-- Added "Pull Coins" to the dropdown options
 FarmingTab:CreateDropdown({
-    Name = "Coin Collection Method", Options = { "FireTouch", "Teleport", "Smooth Fly" }, CurrentOption = { Config.CoinMethod }, Flag = "CoinMethod",
+    Name = "Coin Collection Method",
+    Options = { "FireTouch", "Teleport", "Smooth Fly", "Pull Coins" },
+    CurrentOption = { Config.CoinMethod },
+    Flag = "CoinMethod",
     Callback = function(op) Config.CoinMethod = type(op) == "table" and op[1] or op end
 })
 FarmingTab:CreateToggle({
@@ -188,7 +192,6 @@ CombatTab:CreateToggle({
     Callback = function(v) Config.AutoDodge = v; if v then Combat.StartAutoDodge(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
 })
 CombatTab:CreateSlider({ Name = "Dodge Trigger Distance", Range = {10, 60}, Increment = 1, Suffix = "studs", CurrentValue = Config.DodgeDistance, Flag = "DodgeDistance", Callback = function(v) Config.DodgeDistance = v end })
--- Silent Aim toggle removed
 CombatTab:CreateToggle({
     Name = "Kill Aura (Murderer Only)", CurrentValue = Config.KillAura, Flag = "KillAura",
     Callback = function(v) Config.KillAura = v; if v then Combat.StartKillAura(Config, State, Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
@@ -201,15 +204,10 @@ MoveTab:CreateToggle({ Name = "Noclip", CurrentValue = Config.Noclip, Flag = "No
 MoveTab:CreateSlider({ Name = "Fly Speed", Range = {10, 250}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.FlySpeed, Flag = "FlySpeed", Callback = function(v) Config.FlySpeed = v end })
 
 SettingsTab:CreateSection("Infinite Yield Malware (Freeze + Cbring - Breaks Models)")
-
--- ========================================================================
---  FIXED: freezes only OTHER players and moves their ENTIRE MODEL to you
--- ========================================================================
 SettingsTab:CreateButton({
     Name = "Run ;freeze all + ;cbring all (full malware - ONLY other players, models break now)",
     Callback = function()
         Utils.log(";freeze all + ;cbring all executed - freezing only other players.", "error")
-        -- Freeze all OTHER players (skip LocalPlayer)
         for _, v in ipairs(Players:GetPlayers()) do
             if v ~= LocalPlayer and v.Character then
                 for _, x in next, v.Character:GetDescendants() do
@@ -220,7 +218,6 @@ SettingsTab:CreateButton({
             end
         end
         task.wait(0.2)
-        -- Bring all OTHER players to YOUR exact position using SetPrimaryPartCFrame
         local myRoot = Utils.GetRoot()
         if not myRoot then
             Utils.log("Could not get your HumanoidRootPart.", "error")
@@ -229,25 +226,21 @@ SettingsTab:CreateButton({
         for _, v in ipairs(Players:GetPlayers()) do
             if v ~= LocalPlayer and v.Character then
                 local char = v.Character
-                -- Try to move the whole model via PrimaryPart
                 if char.PrimaryPart then
                     char:SetPrimaryPartCFrame(myRoot.CFrame)
                 else
-                    -- Fallback: manually move every BasePart by the delta
                     local rootPart = char:FindFirstChild("HumanoidRootPart")
                     if rootPart then
                         local delta = myRoot.CFrame - rootPart.CFrame
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
                                 part.CFrame = part.CFrame + delta
-                                -- reset velocities
                                 part.AssemblyLinearVelocity = Vector3.zero
                                 part.AssemblyAngularVelocity = Vector3.zero
                             end
                         end
                     end
                 end
-                -- Reset velocities on all parts (in case some are not anchored)
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") then
                         part.AssemblyLinearVelocity = Vector3.zero
@@ -259,7 +252,6 @@ SettingsTab:CreateButton({
         Utils.log(";freeze all then ;cbring all done - other players frozen and brought exactly to you.", "error")
     end
 })
-
 SettingsTab:CreateButton({ Name = "Force Reset Character", Callback = function() local h = Utils.GetHumanoid(); if h then h.Health = 0 end end })
 SettingsTab:CreateButton({ Name = "Restore WalkSpeed (16)", Callback = function() Movement.ApplyWalkSpeed(16, Config, Utils.GetHumanoid) end })
 SettingsTab:CreateButton({ Name = "Unhook / Destroy Script", Callback = function() unloadScript() end })
