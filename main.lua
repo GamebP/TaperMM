@@ -157,7 +157,7 @@ FarmingTab:CreateSection("Farming Setup")
 FarmingTab:CreateToggle({ Name = "Auto-Collect Coins", CurrentValue = Config.AutoCoin, Flag = "AutoCoin", Callback = function(v) Config.AutoCoin = v end })
 FarmingTab:CreateDropdown({
     Name = "Coin Collection Method",
-    Options = { "Teleport", "Smooth Fly", "Pull Coins" },
+    Options = { "Teleport", "Smooth Fly" },
     CurrentOption = { Config.CoinMethod },
     Flag = "CoinMethod",
     Callback = function(op) Config.CoinMethod = type(op) == "table" and op[1] or op end
