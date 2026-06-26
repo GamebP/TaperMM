@@ -131,9 +131,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
     end)
 end
 
--- ============================================================
---  UPDATED: Auto‑Grab Gun – brings the gun to you, not you to it
--- ============================================================
+-- Auto‑Grab Gun – brings gun to you
 function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Farming.AutoGunThread then return end
     Farming.AutoGunThread = task.spawn(function()
@@ -141,18 +139,14 @@ function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knif
             local gun = stateTable.CachedGunDrop
             local root = utils.GetRoot()
             if gun and root and not utils.hasWeapon(LocalPlayer, "Gun", knifeNames, gunNames) then
-                -- Get the main part of the gun (Handle or first BasePart)
                 local gunPart = utils.getAdorneePart(gun)
                 if gunPart and gunPart:IsA("BasePart") then
-                    -- Move the gun to the player's position (slightly above to avoid ground clipping)
                     local targetPos = root.Position + Vector3.new(0, 2, 0)
                     local tween = TweenService:Create(gunPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
                         CFrame = CFrame.new(targetPos)
                     })
                     tween:Play()
                     tween.Completed:Wait()
-                    
-                    -- Fire touch interests to pick it up automatically
                     pcall(function()
                         firetouchinterest(gunPart, root, 0)
                         task.wait(0.01)
@@ -166,20 +160,43 @@ function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knif
     end)
 end
 
+-- ============================================================
+--  UPDATED XP FARM: smooth walk between the given waypoints
+-- ============================================================
 function Farming.StartXPFarm(configTable, stateTable, utils, movement)
     if Farming.XPThread then return end
     Farming.XPThread = task.spawn(function()
+        -- Define the path waypoints (X, Y, Z)
+        local waypoints = {
+            Vector3.new(-49.50, 247.16, 9010.89),
+            Vector3.new(32.31, 254.66, 9007.49),
+            Vector3.new(34.09, 259.34, 9052.07),
+            Vector3.new(-24.01, 260.87, 9057.17)
+        }
+
         while stateTable.scriptRunning and configTable.XPFarm do
-            local root = utils.GetRoot()
-            if root then
-                movement.SetNoclip(true, configTable)
-                local safePos = Vector3.new(0, 250, 0)
-                if (root.Position - safePos).Magnitude > 5 then
-                    movement.TweenTo(safePos, 1.0, utils.GetRoot)
+            for _, wp in ipairs(waypoints) do
+                if not stateTable.scriptRunning or not configTable.XPFarm then break end
+
+                local root = utils.GetRoot()
+                if root then
+                    -- Enable noclip to avoid collisions
+                    movement.SetNoclip(true, configTable)
+
+                    -- Smoothly tween to the next waypoint (1.5 seconds)
+                    movement.TweenTo(wp, 1.5, utils.GetRoot)
+
+                    -- Wait a bit longer than the tween to ensure arrival
+                    task.wait(1.8)
+
+                    -- Optional: short pause at each waypoint
+                    task.wait(1)
                 end
             end
-            task.wait(2)
         end
+
+        -- Disable noclip when the farm stops
+        movement.SetNoclip(false, configTable)
         Farming.XPThread = nil
     end)
 end
