@@ -1,4 +1,4 @@
--- source/farming.lua (added "Pull Coins" method)
+-- source/farming.lua (fixed Pull Coins with debug logging)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
@@ -44,7 +44,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                             end
                         end
 
-                        -- Sort by distance (optional)
+                        -- Sort by distance (closest first)
                         table.sort(coinParts, function(a, b)
                             return (a.Position - hrp.Position).Magnitude < (b.Position - hrp.Position).Magnitude
                         end)
@@ -57,40 +57,63 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                             if not configTable.AutoCoin or not stateTable.scriptRunning then break end
                             if collected >= maxCoins then break end
                             local distance = (coinPart.Position - hrp.Position).Magnitude
-                            if distance > pullRadius then break end -- sorted, so farther ones will be > radius
+                            if distance > pullRadius then break end -- sorted, so farther ones are > radius
 
                             -- === PULL COINS METHOD ===
                             if configTable.CoinMethod == "Pull Coins" then
-                                -- Prepare the coin part
-                                if coinPart:IsA("BasePart") then
-                                    -- Unanchor and disable collision to allow movement
+                                -- Ensure we have a valid BasePart
+                                if not coinPart or not coinPart:IsA("BasePart") then
+                                    utils.log("Skipping invalid coin part", "warn")
+                                    stateTable.visitedCoins[coinPart] = true
+                                    goto continue
+                                end
+
+                                local success = pcall(function()
+                                    utils.log("Pulling coin: " .. coinPart.Name .. " at distance " .. tostring(distance), "info")
+
+                                    -- Unanchor and allow movement
                                     local wasAnchored = coinPart.Anchored
                                     coinPart.Anchored = false
                                     coinPart.CanCollide = false
+                                    coinPart.AssemblyLinearVelocity = Vector3.zero
+                                    coinPart.AssemblyAngularVelocity = Vector3.zero
 
-                                    -- Tween to player's position (with a small offset)
-                                    local targetPos = hrp.Position + Vector3.new(0, 1.5, 0)
+                                    -- Target position (slightly above your root)
+                                    local targetPos = hrp.Position + Vector3.new(0, 2, 0)
+
+                                    -- Try to tween
                                     local tween = TweenService:Create(coinPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
                                         CFrame = CFrame.new(targetPos)
                                     })
                                     tween:Play()
                                     tween.Completed:Wait()
 
-                                    -- Fire touch to collect
-                                    pcall(function()
-                                        firetouchinterest(coinPart, hrp, 0)
-                                        task.wait(0.01)
-                                        firetouchinterest(coinPart, hrp, 1)
-                                    end)
+                                    -- If tween didn't move it (due to some issue), set CFrame directly
+                                    if (coinPart.Position - targetPos).Magnitude > 1 then
+                                        coinPart.CFrame = CFrame.new(targetPos)
+                                    end
 
-                                    -- Restore anchor state if needed (but coin may be destroyed after touch)
-                                    if coinPart and coinPart.Parent then
+                                    -- Fire touch to collect
+                                    firetouchinterest(coinPart, hrp, 0)
+                                    task.wait(0.02)
+                                    firetouchinterest(coinPart, hrp, 1)
+
+                                    -- Restore anchor state if part still exists
+                                    if coinPart.Parent then
                                         coinPart.Anchored = wasAnchored
                                         coinPart.CanCollide = true
                                     end
 
+                                    utils.log("Coin pulled successfully", "info")
+                                end)
+
+                                if success then
                                     stateTable.visitedCoins[coinPart] = true
                                     collected = collected + 1
+                                else
+                                    utils.log("Failed to pull coin (error caught)", "error")
+                                    -- Mark as visited to avoid retrying
+                                    stateTable.visitedCoins[coinPart] = true
                                 end
                             else
                                 -- Existing methods (FireTouch, Teleport, Smooth Fly) - unchanged
@@ -169,6 +192,7 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
                                     end
                                 end
                             end
+                            ::continue::
                         end
                     end
                 end
@@ -178,7 +202,9 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
     end)
 end
 
--- (the rest of farming.lua stays exactly the same)
+-- The rest of farming.lua (StartAutoGrabGun, StartXPFarm, etc.) stays identical to the previous version.
+-- I'll include them below for completeness.
+
 function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Farming.AutoGunThread then return end
     Farming.AutoGunThread = task.spawn(function()
