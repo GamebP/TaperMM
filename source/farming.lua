@@ -177,31 +177,37 @@ end
 function Farming.StartXPFarm(configTable, stateTable, utils, movement)
     if Farming.XPThread then return end
     Farming.XPThread = task.spawn(function()
-        local waypoints = {
-            Vector3.new(-49.50, 117.16, 9009.19),
-            Vector3.new(34.09,  117.16, 9009.19),
-            Vector3.new(34.09,  117.16, 9054.62),
-            Vector3.new(-49.50, 117.16, 9054.62)
-        }
-        local currentIndex = 1
-
         while stateTable.scriptRunning and configTable.XPFarm do
             local root = utils.GetRoot()
             if root then
-                -- Keep noclip on so you don't get stuck in terrain
                 movement.SetNoclip(true, configTable)
-
-                local target = waypoints[currentIndex]
-                -- Move only if you're not already close
-                if (root.Position - target).Magnitude > 2 then
-                    movement.TweenTo(target, 1.0, utils.GetRoot)
-                    task.wait(1.2)  -- wait for tween to finish
+                local safePos = Vector3.new(0, 250, 0)
+                
+                if (root.Position - safePos).Magnitude > 5 then
+                    -- Temporarily unanchor so the tween can move the character
+                    root.Anchored = false
+                    
+                    local tween = movement.TweenTo(safePos, 1.0, utils.GetRoot)
+                    if tween then
+                        tween.Completed:Wait() -- Wait until the character arrives
+                    end
+                    
+                    -- Anchor the character at the safe spot to resist gravity
+                    if configTable.XPFarm and stateTable.scriptRunning then
+                        root.Anchored = true
+                    end
+                else
+                    -- Keep the character anchored if they are already in position
+                    root.Anchored = true
                 end
-
-                -- Next waypoint (loops)
-                currentIndex = currentIndex % #waypoints + 1
             end
-            task.wait(0.5)  -- small pause between moves
+            task.wait(1)
+        end
+        
+        -- Cleanup: Make sure to unanchor the character when the farm is turned off
+        local root = utils.GetRoot()
+        if root then
+            root.Anchored = false
         end
         Farming.XPThread = nil
     end)
