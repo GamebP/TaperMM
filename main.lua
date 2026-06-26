@@ -10,9 +10,10 @@ local LocalPlayer = Players.LocalPlayer
 -- ==========================================
 --             WEB LOADER CONFIG
 -- ==========================================
--- Replace this URL with your actual raw repository URL (e.g., GitHub Raw, Pastebin, or VPS link)
-local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/refs/heads/main/"
+-- Change this URL to point to where you host your raw scripts
+local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/main/"
 
+-- Each file is now loaded cleanly from the web
 local Data     = loadstring(game:HttpGet(baseURL .. "source/config.lua"))()
 local State    = loadstring(game:HttpGet(baseURL .. "source/state.lua"))()
 local Utils    = loadstring(game:HttpGet(baseURL .. "source/utils.lua"))()
