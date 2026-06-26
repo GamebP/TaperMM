@@ -1,4 +1,4 @@
--- source/combat.lua
+-- source/combat.lua (Silent Aim removed)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
@@ -6,16 +6,9 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 local Combat = {
-    oldNamecall = nil,
-    oldIndex = nil,
     KillAuraThread = nil,
-    DodgeThread = nil,
-    SilentAimEnabled = false
+    DodgeThread = nil
 }
-
--- Re-entrancy safe local upvalues
-local oldNamecall = nil
-local oldIndex = nil
 
 -- Triggerbot validation status helper
 function Combat.isBindActive(configTable, stateTable)
@@ -43,116 +36,7 @@ function Combat.isBindActive(configTable, stateTable)
     return false
 end
 
--- Ray/Click redirection calculations for Silent Aim
-function Combat.FindClosestMurderer(utils, knifeNames, gunNames)
-    local root = utils.GetRoot()
-    if not root then return nil end
-    local closest, dist = nil, math.huge
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and utils.hasWeapon(p, "Knife", knifeNames, gunNames) and p.Character then
-            local mroot = p.Character:FindFirstChild("HumanoidRootPart")
-            if mroot then
-                local d = (mroot.Position - root.Position).Magnitude
-                if d < dist then
-                    dist = d
-                    closest = mroot
-                end
-            end
-        end
-    end
-    return closest
-end
-
-function Combat.InstallSilentAim(utils, knifeNames, gunNames)
-    if oldNamecall or oldIndex then return end
-
-    -- Safe Namecall Metamethod Hook
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        
-        -- Fallback if the hook executes before oldNamecall finishes assigning
-        if not oldNamecall then
-            local original = getrawmetatable(game).__namecall
-            if type(original) == "function" then
-                return original(self, ...)
-            end
-        end
-
-        if not Combat.SilentAimEnabled then return oldNamecall(self, ...) end
-        
-        if self == Mouse then
-            if method == "FindPartOnRay" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" then
-                local args = { ... }
-                local ray = args[1]
-                if typeof(ray) == "Instance" and ray:IsA("Ray") then
-                    local target = Combat.FindClosestMurderer(utils, knifeNames, gunNames)
-                    if target then
-                        local origin = ray.Origin
-                        local dir = (target.Position - origin).Unit * ray.Direction.Magnitude
-                        args[1] = Ray.new(origin, dir)
-                        return oldNamecall(self, table.unpack(args))
-                    end
-                end
-            elseif method == "Raycast" then
-                local args = { ... }
-                local origin = args[1]
-                local dir = args[2]
-                local target = Combat.FindClosestMurderer(utils, knifeNames, gunNames)
-                if target and origin then
-                    args[2] = (target.Position - origin).Unit * (typeof(dir) == "Vector3" and dir.Magnitude or 1000)
-                    return oldNamecall(self, table.unpack(args))
-                end
-            end
-        end
-        return oldNamecall(self, ...)
-    end)
-
-    -- Safe Index Metamethod Hook
-    oldIndex = hookmetamethod(game, "__index", function(self, key)
-        -- Fallback if background processes (like en-us translation) access indexes immediately
-        if not oldIndex then
-            local original = getrawmetatable(game).__index
-            if type(original) == "function" then
-                return original(self, key)
-            elseif type(original) == "table" then
-                return original[key]
-            end
-        end
-
-        if not Combat.SilentAimEnabled then return oldIndex(self, key) end
-        
-        if self == Mouse then
-            if key == "Target" or key == "Hit" then
-                local target = Combat.FindClosestMurderer(utils, knifeNames, gunNames)
-                if target then
-                    if key == "Target" then
-                        return target
-                    elseif key == "Hit" then
-                        return target.CFrame
-                    end
-                end
-            end
-        end
-        return oldIndex(self, key)
-    end)
-
-    Combat.oldNamecall = oldNamecall
-    Combat.oldIndex = oldIndex
-end
-
-function Combat.UninstallSilentAim()
-    if oldNamecall then
-        hookmetamethod(game, "__namecall", oldNamecall)
-        oldNamecall = nil
-        Combat.oldNamecall = nil
-    end
-    if oldIndex then
-        hookmetamethod(game, "__index", oldIndex)
-        oldIndex = nil
-        Combat.oldIndex = nil
-    end
-end
-
+-- Kill Aura (unchanged)
 function Combat.StartKillAura(configTable, stateTable, utils, knifeNames, gunNames)
     if Combat.KillAuraThread then return end
     Combat.KillAuraThread = task.spawn(function()
@@ -182,6 +66,7 @@ function Combat.StartKillAura(configTable, stateTable, utils, knifeNames, gunNam
     end)
 end
 
+-- Auto Dodge (unchanged)
 function Combat.StartAutoDodge(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Combat.DodgeThread then return end
     Combat.DodgeThread = task.spawn(function()
@@ -214,6 +99,7 @@ function Combat.StartAutoDodge(configTable, stateTable, utils, movement, knifeNa
     end)
 end
 
+-- Triggerbot (unchanged)
 function Combat.handleTriggerbot(murderer, configTable, stateTable, utils, gunNames)
     if not configTable.AutoShoot or not murderer or not Combat.isBindActive(configTable, stateTable) then return end
     local myChar = LocalPlayer.Character

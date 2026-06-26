@@ -131,6 +131,9 @@ function Farming.StartCoinFarm(configTable, stateTable, utils, movement)
     end)
 end
 
+-- ============================================================
+--  UPDATED: Auto‑Grab Gun – brings the gun to you, not you to it
+-- ============================================================
 function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
     if Farming.AutoGunThread then return end
     Farming.AutoGunThread = task.spawn(function()
@@ -138,14 +141,24 @@ function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knif
             local gun = stateTable.CachedGunDrop
             local root = utils.GetRoot()
             if gun and root and not utils.hasWeapon(LocalPlayer, "Gun", knifeNames, gunNames) then
-                movement.TweenTo(gun.Position, 0.3, utils.GetRoot, function()
-                    local hrp = utils.GetRoot()
-                    if hrp and gun then
-                        firetouchinterest(gun, hrp, 0)
-                        firetouchinterest(gun, hrp, 1)
-                    end
-                end)
-                task.wait(0.5)
+                -- Get the main part of the gun (Handle or first BasePart)
+                local gunPart = utils.getAdorneePart(gun)
+                if gunPart and gunPart:IsA("BasePart") then
+                    -- Move the gun to the player's position (slightly above to avoid ground clipping)
+                    local targetPos = root.Position + Vector3.new(0, 2, 0)
+                    local tween = TweenService:Create(gunPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
+                        CFrame = CFrame.new(targetPos)
+                    })
+                    tween:Play()
+                    tween.Completed:Wait()
+                    
+                    -- Fire touch interests to pick it up automatically
+                    pcall(function()
+                        firetouchinterest(gunPart, root, 0)
+                        task.wait(0.01)
+                        firetouchinterest(gunPart, root, 1)
+                    end)
+                end
             end
             task.wait(0.2)
         end
