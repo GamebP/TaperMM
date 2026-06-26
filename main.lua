@@ -1,4 +1,4 @@
--- main.lua (brings others exactly to your position, no offset)
+-- main.lua (freeze only others + teleport whole character to you)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -202,9 +202,9 @@ MoveTab:CreateSlider({ Name = "Fly Speed", Range = {10, 250}, Increment = 1, Suf
 
 SettingsTab:CreateSection("Infinite Yield Malware (Freeze + Cbring - Breaks Models)")
 
--- ================================================================
---  FIXED BUTTON: freezes only OTHER players and brings them EXACTLY to your position
--- ================================================================
+-- ========================================================================
+--  FIXED: freezes only OTHER players and moves their ENTIRE MODEL to you
+-- ========================================================================
 SettingsTab:CreateButton({
     Name = "Run ;freeze all + ;cbring all (full malware - ONLY other players, models break now)",
     Callback = function()
@@ -220,20 +220,39 @@ SettingsTab:CreateButton({
             end
         end
         task.wait(0.2)
-        -- Bring all OTHER players to YOUR exact position (no offset)
+        -- Bring all OTHER players to YOUR exact position using SetPrimaryPartCFrame
         local myRoot = Utils.GetRoot()
         if not myRoot then
             Utils.log("Could not get your HumanoidRootPart.", "error")
             return
         end
         for _, v in ipairs(Players:GetPlayers()) do
-            if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-                local targetRoot = v.Character:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    targetRoot.CFrame = myRoot.CFrame  -- exact position, same orientation
-                    -- Optionally reset velocity to prevent sliding
-                    targetRoot.AssemblyLinearVelocity = Vector3.zero
-                    targetRoot.AssemblyAngularVelocity = Vector3.zero
+            if v ~= LocalPlayer and v.Character then
+                local char = v.Character
+                -- Try to move the whole model via PrimaryPart
+                if char.PrimaryPart then
+                    char:SetPrimaryPartCFrame(myRoot.CFrame)
+                else
+                    -- Fallback: manually move every BasePart by the delta
+                    local rootPart = char:FindFirstChild("HumanoidRootPart")
+                    if rootPart then
+                        local delta = myRoot.CFrame - rootPart.CFrame
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CFrame = part.CFrame + delta
+                                -- reset velocities
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                            end
+                        end
+                    end
+                end
+                -- Reset velocities on all parts (in case some are not anchored)
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.AssemblyLinearVelocity = Vector3.zero
+                        part.AssemblyAngularVelocity = Vector3.zero
+                    end
                 end
             end
         end
