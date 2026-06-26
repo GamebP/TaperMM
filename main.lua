@@ -1,388 +1,248 @@
--- main.lua (removed "Pull Coins" from dropdown)
+-- source/farming.lua (no Pull Coins, fixed XP Farm with waypoints)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local PathfindingService = game:GetService("PathfindingService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
--- ==========================================
---             WEB LOADER CONFIG
--- ==========================================
-local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/refs/heads/main/source/"
+local Farming = {
+    AutoGunThread = nil,
+    XPThread = nil,
+    AFKThread = nil,
+    ResetThread = nil,
+    CoinThread = nil
+}
 
-local Data     = loadstring(game:HttpGet(baseURL .. "config.lua"))()
-local State    = loadstring(game:HttpGet(baseURL .. "state.lua"))()
-local Utils    = loadstring(game:HttpGet(baseURL .. "utils.lua"))()
-local ESP      = loadstring(game:HttpGet(baseURL .. "esp.lua"))()
-local Movement = loadstring(game:HttpGet(baseURL .. "movement.lua"))()
-local Combat   = loadstring(game:HttpGet(baseURL .. "combat.lua"))()
-local Farming  = loadstring(game:HttpGet(baseURL .. "farming.lua"))()
-
-local Config = Data.Config
-
-Utils.log("Script loading...")
-
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
-if not PlayerGui then
-    Utils.log("PlayerGui failed to load in time. Exiting.", "error")
-    return
-else
-    Utils.log("PlayerGui resolved successfully.")
-end
-
--- Initialize active threads
-Farming.StartCoinFarm(Config, State, Utils, Movement, Data.MAP_NAMES)
-
--- MB4/MB5 Background Polling Loop
-task.spawn(function()
-    local mb4Down, mb5Down = false, false
-    while State.scriptRunning do
-        task.wait()
-        if Config.AutoShootMode == "Toggle" and iskeydown then
-            local mb4Pressed = iskeydown(0x05)
-            if mb4Pressed and not mb4Down then
-                mb4Down = true
-                if Config.AutoShootBind == "MB4" or Config.AutoShootBind == Enum.UserInputType.MouseButton4 then
-                    State.autoShootActive = not State.autoShootActive
-                end
-            elseif not mb4Pressed and mb4Down then mb4Down = false end
-            
-            local mb5Pressed = iskeydown(0x06)
-            if mb5Pressed and not mb5Down then
-                mb5Down = true
-                if Config.AutoShootBind == "MB5" or Config.AutoShootBind == Enum.UserInputType.MouseButton5 then
-                    State.autoShootActive = not State.autoShootActive
-                end
-            elseif not mb5Pressed and mb5Down then mb5Down = false end
-        end
-    end
-end)
-
--- Background Weapon and Map Cache Loop
-task.spawn(function()
-    while State.scriptRunning do
-        task.wait(0.2)
-        local currentMurderer, currentSheriff = nil, nil
-        for _, player in ipairs(Players:GetPlayers()) do
-            if Utils.hasWeapon(player, "Knife", Data.KNIFE_NAMES, Data.GUN_NAMES) then
-                currentMurderer = player
-            elseif Utils.hasWeapon(player, "Gun", Data.KNIFE_NAMES, Data.GUN_NAMES) then
-                currentSheriff = player
-            end
-        end
-        State.CachedMurderer = currentMurderer
-        State.CachedSheriff = currentSheriff
-        
-        local gunDrop = Workspace:FindFirstChild("GunDrop", true)
-        if not gunDrop then
-            for _, obj in ipairs(Workspace:GetChildren()) do
-                if Utils.isGun(obj, Data.GUN_NAMES) or obj.Name == "GunDrop" or obj.Name == "DroppedGun" then
-                    gunDrop = obj
-                    break
-                end
-            end
-        end
-        State.CachedGunDrop = gunDrop
-    end
-end)
-
--- Background Trap Cache Loop
-task.spawn(function()
-    while State.scriptRunning do
-        task.wait(0.5)
-        local traps = {}
-        for _, v in ipairs(Workspace:GetDescendants()) do
-            if Utils.IsTrap(v) and v:IsA("BasePart") then
-                table.insert(traps, v)
-            end
-        end
-        State.CachedTraps = traps
-    end
-end)
-
--- Background Coin Count Auto-Switching Loop
-task.spawn(function()
-    local autoSwitched = false -- Tracks if we automatically switched to XP Farm
-    
-    while State.scriptRunning do
-        task.wait(1) -- Poll once per second to keep execution light
-        
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
-        local gameFrame = mainGui and mainGui:FindFirstChild("Game")
-        local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
-        local container = coinBags and coinBags:FindFirstChild("Container")
-        local coin = container and container:FindFirstChild("Coin")
-        local currencyFrame = coin and coin:FindFirstChild("CurrencyFrame")
-        local icon = currencyFrame and currencyFrame:FindFirstChild("Icon")
-        local coinsLabel = icon and icon:FindFirstChild("Coins")
-        
-        if coinsLabel and coinsLabel:IsA("TextLabel") then
-            local coinText = coinsLabel.Text
-            local currentCoins = tonumber(string.match(coinText, "%d+")) -- Extract first sequence of digits
-            
-            if currentCoins then
-                -- 1. If coins reach 40, switch to XP Farm
-                if Config.AutoCoin and not Config.XPFarm and currentCoins == 40 then
-                    Utils.log("Coin count reached 40/40! Switching to XP Farm.", "warn")
-                    autoSwitched = true
-                    
-                    if AutoCoinToggle then AutoCoinToggle:Set(false) else Config.AutoCoin = false end
-                    if XPFarmToggle then XPFarmToggle:Set(true) else Config.XPFarm = true; Farming.StartXPFarm(Config, State, Utils, Movement) end
-                
-                -- 2. If coins reset to 0 (new round), switch back to Coin Farm
-                elseif Config.XPFarm and not Config.AutoCoin and currentCoins == 0 and autoSwitched then
-                    Utils.log("New round detected (coins reset to 0). Switching back to Auto-Collect Coins.", "info")
-                    autoSwitched = false
-                    
-                    if XPFarmToggle then XPFarmToggle:Set(false) else Config.XPFarm = false; Movement.SetNoclip(false, Config) end
-                    if AutoCoinToggle then AutoCoinToggle:Set(true) else Config.AutoCoin = true end
-                end
-            end
-        end
-    end
-end)
-
--- Unloader definition
-local renderConnection, inputBeganConnection
-local function unloadScript()
-    Utils.log("Unloading script...", "warn")
-    State.scriptRunning = false
-    
-    -- Ensure the player is unanchored upon unloading
-    local root = Utils.GetRoot()
-    if root then root.Anchored = false end
-    
-    Movement.stopNoclip()
-    Movement.SetFly(false, Config, Utils.GetRoot)
-    
-    if renderConnection then renderConnection:Disconnect() end
-    if inputBeganConnection then inputBeganConnection:Disconnect() end
-    if Movement.WSConn then Movement.WSConn:Disconnect() end
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Character then ESP.clearVisuals(player.Character) end
-    end
-    if State.CachedGunDrop then ESP.clearVisuals(State.CachedGunDrop) end
-    for _, trap in ipairs(State.CachedTraps) do ESP.clearVisuals(trap) end
-    
-    local hum = Utils.GetHumanoid()
-    if hum then hum.WalkSpeed = 16 end
-    
-    pcall(function() Rayfield:Destroy() end)
-    Utils.log("Script unloaded successfully.", "warn")
-end
-
--- ===============================
---  RAYFIELD UI SETUP
--- ===============================
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-local Window = Rayfield:CreateWindow({
-    Name = "MM2 Helper",
-    LoadingTitle = "Loading MM2 Helper...",
-    LoadingSubtitle = "by NroRL",
-    ConfigurationSaving = { Enabled = true, FolderName = "MM2Helper", FileName = "Settings" },
-    Discord = { Enabled = false, Invite = "noinvite", RememberJoins = true },
-    KeySystem = false
-})
-
--- UI Tab Generation
-local VisualsTab = Window:CreateTab("Visuals", 4483362458)
-local FarmingTab = Window:CreateTab("Farming", 4483362458)
-local CombatTab  = Window:CreateTab("Combat", 4483362458)
-local MoveTab    = Window:CreateTab("Movement", 4483362458)
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-
-VisualsTab:CreateSection("Visuals Setup")
-VisualsTab:CreateToggle({ Name = "Player Role ESP", CurrentValue = Config.ESP, Flag = "ESP", Callback = function(v) Config.ESP = v end })
-VisualsTab:CreateToggle({ Name = "Gun Drop ESP", CurrentValue = Config.GunESP, Flag = "GunESP", Callback = function(v) Config.GunESP = v end })
-VisualsTab:CreateToggle({ Name = "Trap ESP", CurrentValue = Config.TrapESP, Flag = "TrapESP", Callback = function(v) Config.TrapESP = v end })
-
-FarmingTab:CreateSection("Farming Setup")
-FarmingTab:CreateToggle({ Name = "Auto-Collect Coins", CurrentValue = Config.AutoCoin, Flag = "AutoCoin", Callback = function(v) Config.AutoCoin = v end })
--- Removed "Pull Coins" from options
-FarmingTab:CreateDropdown({
-    Name = "Coin Collection Method", Options = { "FireTouch", "Teleport", "Smooth Fly" }, CurrentOption = { Config.CoinMethod }, Flag = "CoinMethod",
-    Callback = function(op) Config.CoinMethod = type(op) == "table" and op[1] or op end
-})
-FarmingTab:CreateToggle({
-    Name = "Auto Grab Dropped Gun", CurrentValue = Config.AutoGrabGun, Flag = "AutoGrabGun",
-    Callback = function(v) Config.AutoGrabGun = v; if v then Farming.StartAutoGrabGun(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
-})
-FarmingTab:CreateToggle({
-    Name = "XP / AFK Survival Farm", CurrentValue = Config.XPFarm, Flag = "XPFarm",
-    Callback = function(v) Config.XPFarm = v; if v then Farming.StartXPFarm(Config, State, Utils, Movement) else Movement.SetNoclip(false, Config) end end
-})
-FarmingTab:CreateToggle({
-    Name = "Anti-AFK (VirtualUser)", CurrentValue = Config.AntiAFK, Flag = "AntiAFK",
-    Callback = function(v) Config.AntiAFK = v; if v then Farming.StartAntiAFK(Config, State) end end
-})
-FarmingTab:CreateToggle({
-    Name = "Auto Reset on Round End", CurrentValue = Config.AutoReset, Flag = "AutoReset",
-    Callback = function(v) Config.AutoReset = v; if v then Farming.StartAutoReset(Config, State, Utils) end end
-})
-
-CombatTab:CreateSection("Combat Setup")
-CombatTab:CreateToggle({ Name = "Triggerbot System", CurrentValue = Config.AutoShoot, Flag = "AutoShoot", Callback = function(v) Config.AutoShoot = v end })
-CombatTab:CreateKeybind({ Name = "Trigger Key", CurrentKeybind = "V", Flag = "AutoShootBind", Callback = function(key) Config.AutoShootBind = key end })
-CombatTab:CreateDropdown({
-    Name = "Trigger Mode", Options = { "Hold", "Toggle" }, CurrentOption = { Config.AutoShootMode }, Flag = "AutoShootMode",
-    Callback = function(op) Config.AutoShootMode = type(op) == "table" and op[1] or op end
-})
-CombatTab:CreateToggle({
-    Name = "Auto Dodge Knife", CurrentValue = Config.AutoDodge, Flag = "AutoDodge",
-    Callback = function(v) Config.AutoDodge = v; if v then Combat.StartAutoDodge(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
-})
-CombatTab:CreateSlider({ Name = "Dodge Trigger Distance", Range = {10, 60}, Increment = 1, Suffix = "studs", CurrentValue = Config.DodgeDistance, Flag = "DodgeDistance", Callback = function(v) Config.DodgeDistance = v end })
-CombatTab:CreateToggle({
-    Name = "Kill Aura (Murderer Only)", CurrentValue = Config.KillAura, Flag = "KillAura",
-    Callback = function(v) Config.KillAura = v; if v then Combat.StartKillAura(Config, State, Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
-})
-CombatTab:CreateSlider({ Name = "Kill Aura Range", Range = {5, 40}, Increment = 1, Suffix = "studs", CurrentValue = Config.KillAuraRange, Flag = "KillAuraRange", Callback = function(v) Config.KillAuraRange = v end })
-
-MoveTab:CreateSection("Movement Setup")
-MoveTab:CreateSlider({ Name = "WalkSpeed", Range = {16, 200}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.WalkSpeed, Flag = "WalkSpeed", Callback = function(v) Movement.ApplyWalkSpeed(v, Config, Utils.GetHumanoid) end })
-MoveTab:CreateToggle({ Name = "Noclip", CurrentValue = Config.Noclip, Flag = "Noclip", Callback = function(v) Movement.SetNoclip(v, Config) end })
-MoveTab:CreateSlider({ Name = "Fly Speed", Range = {10, 250}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.FlySpeed, Flag = "FlySpeed", Callback = function(v) Config.FlySpeed = v end })
-
-SettingsTab:CreateSection("Infinite Yield Malware (Freeze + Cbring - Breaks Models)")
-SettingsTab:CreateButton({
-    Name = "Run ;freeze all + ;cbring all (full malware - ONLY other players, models break now)",
-    Callback = function()
-        Utils.log(";freeze all + ;cbring all executed - freezing only other players.", "error")
-        for _, v in ipairs(Players:GetPlayers()) do
-            if v ~= LocalPlayer and v.Character then
-                for _, x in next, v.Character:GetDescendants() do
-                    if x:IsA("BasePart") and not x.Anchored then
-                        x.Anchored = true
+function Farming.StartCoinFarm(configTable, stateTable, utils, movement, mapNames)
+    if Farming.CoinThread then return end
+    Farming.CoinThread = task.spawn(function()
+        local lastCoinContainer = nil
+        while stateTable.scriptRunning do
+            task.wait(0.2)
+            if configTable.AutoCoin then
+                local myChar = LocalPlayer.Character
+                local hrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local coinContainer = nil
+                    if utils and utils.findCoinContainer then
+                        coinContainer = utils.findCoinContainer(mapNames or {})
+                    else
+                        for _, obj in ipairs(Workspace:GetChildren()) do
+                            if obj:IsA("Model") then
+                                local c = obj:FindFirstChild("CoinContainer")
+                                if c then coinContainer = c; break end
+                            end
+                        end
                     end
-                end
-            end
-        end
-        task.wait(0.2)
-        local myRoot = Utils.GetRoot()
-        if not myRoot then
-            Utils.log("Could not get your HumanoidRootPart.", "error")
-            return
-        end
-        for _, v in ipairs(Players:GetPlayers()) do
-            if v ~= LocalPlayer and v.Character then
-                local char = v.Character
-                if char.PrimaryPart then
-                    char:SetPrimaryPartCFrame(myRoot.CFrame)
-                else
-                    local rootPart = char:FindFirstChild("HumanoidRootPart")
-                    if rootPart then
-                        local delta = myRoot.CFrame - rootPart.CFrame
-                        for _, part in ipairs(char:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CFrame = part.CFrame + delta
-                                part.AssemblyLinearVelocity = Vector3.zero
-                                part.AssemblyAngularVelocity = Vector3.zero
+
+                    if coinContainer then
+                        if coinContainer ~= lastCoinContainer then
+                            stateTable.visitedCoins = {}
+                            lastCoinContainer = coinContainer
+                        end
+
+                        for _, v in ipairs(coinContainer:GetChildren()) do
+                            if not configTable.AutoCoin or not stateTable.scriptRunning then break end
+                            if v.Name == "Coin_Server" or v.Name == "Snowflake_Server" or v.Name == "Candy_Server" then
+                                local coinPart = v:IsA("BasePart") and v or (v:FindFirstChild("Coin") or v:FindFirstChildOfClass("BasePart"))
+                                
+                                if coinPart and coinPart:IsDescendantOf(Workspace) and not stateTable.visitedCoins[coinPart] then
+                                    if configTable.CoinMethod == "Teleport" then
+                                        hrp.AssemblyLinearVelocity = Vector3.zero
+                                        hrp.CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)
+                                        task.wait(0.18)
+                                        stateTable.visitedCoins[coinPart] = true
+                                    elseif configTable.CoinMethod == "Smooth Fly" then
+                                        local path = PathfindingService:CreatePath({
+                                            AgentRadius = 2,
+                                            AgentHeight = 5,
+                                            AgentCanJump = true
+                                        })
+                                        local pathSuccess, _ = pcall(function()
+                                            path:ComputeAsync(hrp.Position, coinPart.Position)
+                                        end)
+                                        
+                                        if pathSuccess and path.Status == Enum.PathStatus.Success then
+                                            local waypoints = path:GetWaypoints()
+                                            movement.startNoclip()
+                                            
+                                            for _, waypoint in ipairs(waypoints) do
+                                                if not configTable.AutoCoin or not stateTable.scriptRunning then break end
+                                                local targetPos = waypoint.Position + Vector3.new(0, 1.2, 0)
+                                                local distance = (hrp.Position - targetPos).Magnitude
+                                                local speed = 30
+                                                local duration = distance / speed
+                                                
+                                                hrp.AssemblyLinearVelocity = Vector3.zero
+                                                local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
+                                                tween:Play()
+                                                
+                                                local completed = false
+                                                local conn; conn = tween.Completed:Connect(function()
+                                                    completed = true
+                                                    conn:Disconnect()
+                                                end)
+                                                
+                                                while not completed and configTable.AutoCoin and stateTable.scriptRunning do
+                                                    task.wait()
+                                                end
+                                                if not configTable.AutoCoin or not stateTable.scriptRunning then
+                                                    tween:Cancel()
+                                                    break
+                                                end
+                                            end
+                                            movement.stopNoclip()
+                                            stateTable.visitedCoins[coinPart] = true
+                                        else
+                                            movement.startNoclip()
+                                            local distance = (hrp.Position - coinPart.Position).Magnitude
+                                            local speed = 30
+                                            local duration = distance / speed
+                                            
+                                            hrp.AssemblyLinearVelocity = Vector3.zero
+                                            local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = coinPart.CFrame + Vector3.new(0, 1.2, 0)})
+                                            tween:Play()
+                                            
+                                            local completed = false
+                                            local conn; conn = tween.Completed:Connect(function()
+                                                completed = true
+                                                conn:Disconnect()
+                                            end)
+                                            
+                                            while not completed and configTable.AutoCoin and stateTable.scriptRunning do
+                                                task.wait()
+                                            end
+                                            if not configTable.AutoCoin or not stateTable.scriptRunning then
+                                                tween:Cancel()
+                                            end
+                                            movement.stopNoclip()
+                                            stateTable.visitedCoins[coinPart] = true
+                                        end
+                                        task.wait(0.1)
+                                    else
+                                        -- FireTouch
+                                        if firetouchinterest then
+                                            firetouchinterest(coinPart, hrp, 0)
+                                            task.wait(0.01)
+                                            firetouchinterest(coinPart, hrp, 1)
+                                            task.wait(0.05)
+                                            stateTable.visitedCoins[coinPart] = true
+                                        end
+                                    end
+                                end
                             end
                         end
                     end
                 end
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.AssemblyLinearVelocity = Vector3.zero
-                        part.AssemblyAngularVelocity = Vector3.zero
-                    end
-                end
             end
         end
-        Utils.log(";freeze all then ;cbring all done - other players frozen and brought exactly to you.", "error")
-    end
-})
-SettingsTab:CreateButton({ Name = "Force Reset Character", Callback = function() local h = Utils.GetHumanoid(); if h then h.Health = 0 end end })
-SettingsTab:CreateButton({ Name = "Restore WalkSpeed (16)", Callback = function() Movement.ApplyWalkSpeed(16, Config, Utils.GetHumanoid) end })
-SettingsTab:CreateButton({ Name = "Unhook / Destroy Script", Callback = function() unloadScript() end })
-
-local function toggleUI()
-    if Window then
-        local coreUI = game:GetService("CoreGui"):FindFirstChild("Rayfield") or LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("Rayfield")
-        if coreUI then coreUI.Enabled = not coreUI.Enabled end
-    end
+        Farming.CoinThread = nil
+    end)
 end
 
--- ===============================
---  INPUT & RENDER STEP CONNECTIONS
--- ===============================
-inputBeganConnection = UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    if input.KeyCode == Enum.KeyCode.Insert or input.KeyCode == Enum.KeyCode.RightShift then
-        toggleUI()
-        return
-    end
-
-    if Config.AutoShootMode == "Toggle" then
-        local bind = Config.AutoShootBind
-        local match = false
-        if typeof(bind) == "EnumItem" then
-            if tostring(bind):find("UserInputType") then
-                if input.UserInputType == bind then match = true end
-            else
-                if input.KeyCode == bind then match = true end
-            end
-        elseif typeof(bind) == "string" then
-            local success, keyCode = pcall(function() return Enum.KeyCode[bind] end)
-            if success and keyCode and input.KeyCode == keyCode then match = true end
-            local successMouse, mouseCode = pcall(function() return Enum.UserInputType[bind] end)
-            if successMouse and mouseCode and input.UserInputType == mouseCode then match = true end
-        end
-        if match then State.autoShootActive = not State.autoShootActive end
-    end
-end)
-
-renderConnection = RunService.RenderStepped:Connect(function()
-    if not State.scriptRunning then return end
-    local murderer, sheriff, me = State.CachedMurderer, State.CachedSheriff, LocalPlayer
-    
-    local meChar = me.Character
-    local meHrp = meChar and meChar:FindFirstChild("HumanoidRootPart")
-    local isMeInMap = meHrp and meHrp.Position.Z > 4500 or false
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        local char = player.Character
-        if char then
-            local adornee = char:FindFirstChild("Head") or char.PrimaryPart or char:FindFirstChildOfClass("BasePart")
-            if adornee then
-                if Config.ESP and isMeInMap then
-                    if player == me then
-                        ESP.clearVisuals(char)
-                    elseif player == murderer then ESP.updateVisuals(char, adornee, "Murderer", Color3.fromRGB(240, 40, 40), false)
-                    elseif player == sheriff then ESP.updateVisuals(char, adornee, "Sheriff", Color3.fromRGB(40, 120, 255), false)
-                    else ESP.updateVisuals(char, adornee, "Innocent", Color3.fromRGB(180, 180, 180), false) end
-                else
-                    ESP.clearVisuals(char)
+function Farming.StartAutoGrabGun(configTable, stateTable, utils, movement, knifeNames, gunNames)
+    if Farming.AutoGunThread then return end
+    Farming.AutoGunThread = task.spawn(function()
+        while stateTable.scriptRunning and configTable.AutoGrabGun do
+            local gun = stateTable.CachedGunDrop
+            local root = utils.GetRoot()
+            if gun and root and not utils.hasWeapon(LocalPlayer, "Gun", knifeNames, gunNames) then
+                local gunPart = utils.getAdorneePart(gun)
+                if gunPart and gunPart:IsA("BasePart") then
+                    local targetPos = root.Position + Vector3.new(0, 2, 0)
+                    local tween = TweenService:Create(gunPart, TweenInfo.new(0.3, Enum.EasingStyle.Linear), {
+                        CFrame = CFrame.new(targetPos)
+                    })
+                    tween:Play()
+                    tween.Completed:Wait()
+                    pcall(function()
+                        firetouchinterest(gunPart, root, 0)
+                        task.wait(0.01)
+                        firetouchinterest(gunPart, root, 1)
+                    end)
                 end
             end
+            task.wait(0.2)
         end
-    end
-    
-    if State.CachedGunDrop then
-        local adorneePart = Utils.getAdorneePart(State.CachedGunDrop)
-        if adorneePart and Config.GunESP and isMeInMap then
-            ESP.updateVisuals(State.CachedGunDrop, adorneePart, "Dropped Gun", Color3.fromRGB(255, 215, 0), true)
-        else
-            ESP.clearVisuals(State.CachedGunDrop)
-        end
-    end
+        Farming.AutoGunThread = nil
+    end)
+end
 
-    for _, trap in ipairs(State.CachedTraps) do
-        if trap and trap.Parent then
-            local adorneePart = Utils.getAdorneePart(trap)
-            if adorneePart and Config.TrapESP and isMeInMap then
-                ESP.updateVisuals(trap, adorneePart, "Trap", Color3.fromRGB(255, 100, 255), true)
-            else
-                ESP.clearVisuals(trap)
+-- ============================================================
+--  XP FARM (Physics Anchor Fix Version)
+-- ============================================================
+function Farming.StartXPFarm(configTable, stateTable, utils, movement)
+    if Farming.XPThread then return end
+    Farming.XPThread = task.spawn(function()
+        while stateTable.scriptRunning and configTable.XPFarm do
+            local root = utils.GetRoot()
+            if root then
+                movement.SetNoclip(true, configTable)
+                local safePos = Vector3.new(0, 250, 0)
+                
+                if (root.Position - safePos).Magnitude > 5 then
+                    -- Temporarily unanchor so the tween can move the character
+                    root.Anchored = false
+                    
+                    local tween = movement.TweenTo(safePos, 1.0, utils.GetRoot)
+                    if tween then
+                        tween.Completed:Wait() -- Wait until the character arrives
+                    end
+                    
+                    -- Anchor the character at the safe spot to resist gravity
+                    if configTable.XPFarm and stateTable.scriptRunning then
+                        root.Anchored = true
+                    end
+                else
+                    -- Keep the character anchored if they are already in position
+                    root.Anchored = true
+                end
             end
+            task.wait(1)
         end
-    end
-    
-    Combat.handleTriggerbot(murderer, Config, State, Utils, Data.GUN_NAMES)
-end)
+        
+        -- Cleanup: Make sure to unanchor the character when the farm is turned off
+        local root = utils.GetRoot()
+        if root then
+            root.Anchored = false
+        end
+        Farming.XPThread = nil
+    end)
+end
 
-Utils.log("Script loaded successfully.")
+function Farming.StartAntiAFK(configTable, stateTable)
+    if Farming.AFKThread then return end
+    Farming.AFKThread = task.spawn(function()
+        while stateTable.scriptRunning and configTable.AntiAFK do
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton1(Vector2.new())
+            task.wait(math.random(120, 240))
+        end
+        Farming.AFKThread = nil
+    end)
+end
+
+function Farming.StartAutoReset(configTable, stateTable, utils)
+    if Farming.ResetThread then return end
+    Farming.ResetThread = task.spawn(function()
+        while stateTable.scriptRunning and configTable.AutoReset do
+            local hum = utils.GetHumanoid()
+            if hum and hum.Health <= 0 then
+                task.wait(1)
+                local char = utils.GetCharacter()
+                if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health <= 0 then
+                    pcall(function()
+                        ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ResetCharacter"):FireServer()
+                    end)
+                end
+            end
+            task.wait(1)
+        end
+        Farming.ResetThread = nil
+    end)
+end
+
+return Farming
