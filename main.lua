@@ -1,4 +1,4 @@
--- main.lua (updated)
+-- main.lua (brings others exactly to your position, no offset)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -110,7 +110,6 @@ local function unloadScript()
     
     Movement.stopNoclip()
     Movement.SetFly(false, Config, Utils.GetRoot)
-    -- Silent Aim uninstall removed
     
     if renderConnection then renderConnection:Disconnect() end
     if inputBeganConnection then inputBeganConnection:Disconnect() end
@@ -189,7 +188,7 @@ CombatTab:CreateToggle({
     Callback = function(v) Config.AutoDodge = v; if v then Combat.StartAutoDodge(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
 })
 CombatTab:CreateSlider({ Name = "Dodge Trigger Distance", Range = {10, 60}, Increment = 1, Suffix = "studs", CurrentValue = Config.DodgeDistance, Flag = "DodgeDistance", Callback = function(v) Config.DodgeDistance = v end })
--- Silent Aim toggle removed here
+-- Silent Aim toggle removed
 CombatTab:CreateToggle({
     Name = "Kill Aura (Murderer Only)", CurrentValue = Config.KillAura, Flag = "KillAura",
     Callback = function(v) Config.KillAura = v; if v then Combat.StartKillAura(Config, State, Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
@@ -202,29 +201,46 @@ MoveTab:CreateToggle({ Name = "Noclip", CurrentValue = Config.Noclip, Flag = "No
 MoveTab:CreateSlider({ Name = "Fly Speed", Range = {10, 250}, Increment = 1, Suffix = " studs/s", CurrentValue = Config.FlySpeed, Flag = "FlySpeed", Callback = function(v) Config.FlySpeed = v end })
 
 SettingsTab:CreateSection("Infinite Yield Malware (Freeze + Cbring - Breaks Models)")
+
+-- ================================================================
+--  FIXED BUTTON: freezes only OTHER players and brings them EXACTLY to your position
+-- ================================================================
 SettingsTab:CreateButton({
     Name = "Run ;freeze all + ;cbring all (full malware - ONLY other players, models break now)",
     Callback = function()
-        Utils.log(";freeze all + ;cbring all executed - ONLY other players frozen, models will break on screen.", "error")
+        Utils.log(";freeze all + ;cbring all executed - freezing only other players.", "error")
+        -- Freeze all OTHER players (skip LocalPlayer)
         for _, v in ipairs(Players:GetPlayers()) do
-            if v.Character then
+            if v ~= LocalPlayer and v.Character then
                 for _, x in next, v.Character:GetDescendants() do
-                    if x:IsA("BasePart") and not x.Anchored then x.Anchored = true end
+                    if x:IsA("BasePart") and not x.Anchored then
+                        x.Anchored = true
+                    end
                 end
             end
         end
         task.wait(0.2)
-        local speaker = LocalPlayer
+        -- Bring all OTHER players to YOUR exact position (no offset)
+        local myRoot = Utils.GetRoot()
+        if not myRoot then
+            Utils.log("Could not get your HumanoidRootPart.", "error")
+            return
+        end
         for _, v in ipairs(Players:GetPlayers()) do
-            if v ~= speaker and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+            if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
                 local targetRoot = v.Character:FindFirstChild("HumanoidRootPart")
-                local myRoot = Utils.GetRoot()
-                if targetRoot and myRoot then targetRoot.CFrame = myRoot.CFrame + Vector3.new(3, 1, 0) end
+                if targetRoot then
+                    targetRoot.CFrame = myRoot.CFrame  -- exact position, same orientation
+                    -- Optionally reset velocity to prevent sliding
+                    targetRoot.AssemblyLinearVelocity = Vector3.zero
+                    targetRoot.AssemblyAngularVelocity = Vector3.zero
+                end
             end
         end
-        Utils.log(";freeze all then ;cbring all done - models destroyed now bro.", "error")
+        Utils.log(";freeze all then ;cbring all done - other players frozen and brought exactly to you.", "error")
     end
 })
+
 SettingsTab:CreateButton({ Name = "Force Reset Character", Callback = function() local h = Utils.GetHumanoid(); if h then h.Health = 0 end end })
 SettingsTab:CreateButton({ Name = "Restore WalkSpeed (16)", Callback = function() Movement.ApplyWalkSpeed(16, Config, Utils.GetHumanoid) end })
 SettingsTab:CreateButton({ Name = "Unhook / Destroy Script", Callback = function() unloadScript() end })
