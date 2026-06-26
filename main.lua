@@ -1,4 +1,4 @@
--- main.lua
+-- main.lua (updated)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -10,10 +10,8 @@ local LocalPlayer = Players.LocalPlayer
 -- ==========================================
 --             WEB LOADER CONFIG
 -- ==========================================
--- Updated base URL to point directly to your repository's source folder
 local baseURL = "https://raw.githubusercontent.com/GamebP/TaperMM/refs/heads/main/source/"
 
--- Loading files directly from the specified directory path
 local Data     = loadstring(game:HttpGet(baseURL .. "config.lua"))()
 local State    = loadstring(game:HttpGet(baseURL .. "state.lua"))()
 local Utils    = loadstring(game:HttpGet(baseURL .. "utils.lua"))()
@@ -112,7 +110,7 @@ local function unloadScript()
     
     Movement.stopNoclip()
     Movement.SetFly(false, Config, Utils.GetRoot)
-    Combat.UninstallSilentAim()
+    -- Silent Aim uninstall removed
     
     if renderConnection then renderConnection:Disconnect() end
     if inputBeganConnection then inputBeganConnection:Disconnect() end
@@ -191,13 +189,7 @@ CombatTab:CreateToggle({
     Callback = function(v) Config.AutoDodge = v; if v then Combat.StartAutoDodge(Config, State, Utils, Movement, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
 })
 CombatTab:CreateSlider({ Name = "Dodge Trigger Distance", Range = {10, 60}, Increment = 1, Suffix = "studs", CurrentValue = Config.DodgeDistance, Flag = "DodgeDistance", Callback = function(v) Config.DodgeDistance = v end })
-CombatTab:CreateToggle({
-    Name = "Silent Aim (Metatable Hook)", CurrentValue = Config.SilentAim, Flag = "SilentAim",
-    Callback = function(v)
-        Config.SilentAim = v; Combat.SilentAimEnabled = v
-        if v then Combat.InstallSilentAim(Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) else Combat.UninstallSilentAim() end
-    end
-})
+-- Silent Aim toggle removed here
 CombatTab:CreateToggle({
     Name = "Kill Aura (Murderer Only)", CurrentValue = Config.KillAura, Flag = "KillAura",
     Callback = function(v) Config.KillAura = v; if v then Combat.StartKillAura(Config, State, Utils, Data.KNIFE_NAMES, Data.GUN_NAMES) end end
